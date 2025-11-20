@@ -1,0 +1,248 @@
+# QTCR-Net: Quantum Temporal Convolutional Reservoir Network
+# Configuration file for DVS128 event camera classification
+
+# ============================================================================
+# DATA CONFIGURATION
+# ============================================================================
+data:
+  # Raw CSV data paths
+  csv_dir: "~/Desktop/QuantumNetwork/data/raw_truncated"
+  metadata_path: "~/Desktop/QuantumNetwork/data/raw_truncated/dataset_metadata.json"
+
+  # Preprocessed data paths
+  processed_dir: "./data/processed"
+  manifest_path: "./data/processed/manifest.csv"
+
+  # DVS128 sensor specifications
+  sensor:
+    width: 128
+    height: 128
+    polarities: 2  # ON/OFF events
+
+  # Temporal window configuration
+  window:
+    duration_sec: 1.0  # Choose 0.5 or 1.0 seconds
+    temporal_bins: 128  # T=64 for 0.5s, T=128 for 1.0s
+    overlap: 0.0  # Non-overlapping windows
+
+  # Spatial pooling configuration
+  spatial:
+    patch_size: 8  # 8x8 or 16x16 patches
+    # Resulting spatial dimensions: 128/8 = 16x16 or 128/16 = 8x8
+
+  # Normalization
+  normalization:
+    log_eps: 1e-6  # For log(1 + x) normalization
+    per_window_norm: true  # Normalize each window independently
+    clip_value: 10.0  # Clip extreme values
+
+  # Class labels
+  waveform_classes: ["burst", "sine", "square", "triangle"]
+  voltage_classes: ["200mV", "300mV", "400mV", "500mV"]
+  num_waveform_classes: 4
+  num_voltage_classes: 4
+
+# ============================================================================
+# MODEL ARCHITECTURE
+# ============================================================================
+model:
+  name: "QTCR-Net"
+
+  # Input shape: [batch, 2, T, H, W] where T=128, H=W=16 (for 8x8 patches)
+
+  # Spatio-temporal feature extractor (fully convolutional)
+  feature_extractor:
+    # Initial 3D convolution block
+    initial_3d:
+      enabled: true
+      in_channels: 2  # Polarities
+      out_channels: 32
+      kernel_size: [3, 3, 3]  # [T, H, W]
+      padding: [1, 1, 1]
+
+    # Separable convolution alternative (if initial_3d.enabled=false)
+    separable:
+      enabled: false
+      temporal_channels: 16
+      spatial_channels: 32
+      temporal_kernel: 3
+      spatial_kernel: 3
+
+    # Temporal Convolutional Network (TCN) stack
+    tcn:
+      num_blocks: 4
+      channels: [32, 64, 128, 128]  # Channel progression
+      kernel_size: 3
+      dilations: [1, 2, 4, 8]  # Multi-scale temporal receptive field
+      dropout: 0.1
+      residual: true
+      causal: true  # Causal temporal convolutions
+
+    # Spatial feature refinement (2D convolutions)
+    spatial_refine:
+      enabled: true
+      channels: [128, 128]
+      kernel_size: 3
+      padding: 1
+
+  # Quantum Temporal Reservoir
+  quantum_reservoir:
+    bypass: false  # QMLP-style quantum
+    n_qubits: 4  # Small quantum circuit
+    num_groups: 6  # Split temporal features into K groups
+    qubits_per_group: 6  # 4-8 qubits per QNode
+
+    # Feature projection before quantum encoding
+    feature_dim_per_group: 32  # Increased to carry more information
+
+    # Quantum circuit architecture
+    circuit:
+      encoding: "angle"  # angle, amplitude, or IQP
+      num_layers: 3  # Number of variational layers (2-4)
+      entanglement: "ring"  # ring, chain, or all
+      data_reuploading: true  # Strong data re-uploading
+
+      # Rotation gates per layer
+      rotations: ["RY", "RZ"]  # Apply RY and RZ rotations
+
+      # Observables for measurement
+      observables:
+        - "PauliZ"  # Measure Z on each qubit
+        # Can add more: "PauliX", "PauliY", "Hadamard"
+      measure_all_qubits: true  # Measure all qubits or subset
+
+    # Reservoir computing settings
+    trainable_quantum: true  # Enable training to learn useful features
+    trainable_subset: 0.5  # Train 50% of quantum parameters
+
+    # PennyLane backend
+    backend: "default.qubit"  # Use lightning.qubit for speed if available
+    diff_method: "backprop"  # backprop, parameter-shift, adjoint
+
+  # Classification head (fully convolutional)
+  classifier:
+    # 1x1 convolution for channel mixing
+    conv1x1_channels: 64
+
+    # Global pooling
+    global_pool: "adaptive_avg"  # adaptive_avg or adaptive_max
+
+    # Final MLP (small, only for final classification)
+    hidden_dim: 128
+    dropout: 0.3
+
+    # Dual-head outputs
+    waveform_classes: 4
+    voltage_classes: 4
+
+# ============================================================================
+# TRAINING CONFIGURATION
+# ============================================================================
+training:
+  # Device
+  device: "cuda"  # cuda or cpu
+  num_workers: 8
+
+  # Batch and epochs
+  batch_size: 24  # 16-32 for RTX 5070
+  num_epochs: 200  # Increased for better convergence
+
+  # Optimization
+  optimizer:
+    type: "AdamW"
+    lr_classical: 0.001  # Reduced for stability
+    lr_quantum: 0.001  # Increased to match classical (was 30x lower)
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+
+  # Learning rate scheduling
+  scheduler:
+    enabled: true
+    type: "ReduceLROnPlateau"  # More stable than CosineAnnealing
+    factor: 0.5
+    patience: 10
+    min_lr: 1.0e-6
+
+  # Loss configuration
+  loss:
+    waveform_weight: 1.0
+    voltage_weight: 1.0
+    label_smoothing: 0.1  # Label smoothing for regularization
+
+  # Regularization
+  gradient_clip: 1.0  # Gradient clipping norm
+  mixed_precision: true  # Re-enabled for classical baseline
+
+  # Data split
+  train_split: 0.7
+  val_split: 0.15
+  test_split: 0.15
+  random_seed: 42
+
+  # Checkpointing
+  checkpoint:
+    save_dir: "./checkpoints"
+    save_freq: 5  # Save every N epochs
+    save_best: true  # Save best validation model
+    metric: "val_loss"  # Metric to track for best model
+
+  # Early stopping
+  early_stopping:
+    enabled: false  # Disabled to let model train fully
+    patience: 30  # Increased patience
+    min_delta: 0.001  # Minimum improvement
+
+  # Logging
+  logging:
+    tensorboard_dir: "./runs"
+    log_freq: 10  # Log every N batches
+    print_freq: 50  # Print every N batches
+
+# ============================================================================
+# EVALUATION CONFIGURATION
+# ============================================================================
+evaluation:
+  # Metrics
+  metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1"
+    - "confusion_matrix"
+
+  # Visualization
+  plot_confusion_matrix: true
+  save_predictions: true
+  predictions_path: "./results/predictions.csv"
+
+  # Test-time augmentation
+  tta:
+    enabled: false
+    num_augmentations: 5
+
+# ============================================================================
+# COMPUTATIONAL RESOURCES
+# ============================================================================
+hardware:
+  gpu: "RTX 5070"
+  cpu: "i9-12900K"
+  ram_gb: 64
+  os: "Linux Mint"
+
+  # Resource limits
+  max_memory_per_batch: 8  # GB
+  prefetch_factor: 2
+  pin_memory: true
+
+# ============================================================================
+# EXPERIMENT TRACKING
+# ============================================================================
+experiment:
+  name: "QTCR-Net-DVS128"
+  version: "1.0"
+  description: "Quantum Temporal Convolutional Reservoir Network for DVS event classification"
+  tags: ["quantum", "neuromorphic", "event-camera", "reservoir", "TCN"]
+
+  # Reproducibility
+  seed: 42
+  deterministic: false  # Set true for full reproducibility (slower)
