@@ -27,11 +27,11 @@ Neuromorphic vision sensors (DVS) offer microsecond temporal resolution, produci
 
 ### 1. DVS Event Model
 
-Each DVS pixel fires an event $e_k = (t_k, x_k, y_k, p_k)$ when the logarithmic change in light intensity $I$ exceeds threshold $\theta$ [5]:
+Each DVS pixel fires an event $e_k = (\mathbf{x}_k, t_k, p_k)$ when the brightness change reaches the contrast threshold $C$ [5]:
 
-$$\Delta \log I(x,y) = \log I(x,y,t) - \log I(x,y,t-\Delta t) \geq \pm\theta$$
+$$\Delta L(\mathbf{x}_k, t_k) = L(\mathbf{x}_k, t_k) - L(\mathbf{x}_k, t_k - \Delta t_k) = p_k C$$
 
-where $I$ is the pixel illuminance (light intensity). Positive changes trigger ON events ($p=1$), negative changes trigger OFF events ($p=0$).
+where $L \doteq \log(I)$ is the log photocurrent (brightness), $C > 0$ is the contrast sensitivity threshold, and $p_k \in \{+1, -1\}$ is the polarity (ON/OFF).
 
 ### 2. Experimental Setup: Optical Chopper
 
