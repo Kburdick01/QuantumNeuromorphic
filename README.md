@@ -44,6 +44,9 @@ A New Focus 3501 10-blade optical chopper wheel modulates light intensity as bla
 
 The different waveform shapes create distinct spatiotemporal event patterns that the network learns to classify.
 
+![Preprocessing Pipeline](paper_figures/preprocessing_pipeline.png)
+*Figure 1: DVS event preprocessing pipeline from raw CSV events to normalized voxel grids.*
+
 ---
 
 ## Spatiotemporal Voxelization
@@ -65,7 +68,7 @@ $$V(c,t,y,x) = \sum_{k} \mathbb{I}(p_k=c) \cdot \mathbb{I}(t_k \in \text{bin}_t)
 Events are counted in spatial patches (8×8 pixels → 16×16 grid) and temporal bins (128 bins per window).
 
 ![Voxel Grid Visualization](paper_figures/voxel_grid_visualization.png)
-*Figure 1: DVS voxel grid representation showing temporal evolution, spatial distribution, and polarity channels.*
+*Figure 2: DVS voxel grid representation showing temporal evolution, spatial distribution, and polarity channels.*
 
 ### Normalization Pipeline
 
@@ -102,7 +105,10 @@ $$h_\ell = h_{\ell-1} + \text{Dropout}\left(\text{ReLU}\left(\text{BN}\left(W_\e
 Channel progression: $32 \rightarrow 64 \rightarrow 128 \rightarrow 128$
 
 ![Architecture Comparison](paper_figures/architecture_comparison.png)
-*Figure 2: Q-TCRNet architecture showing 3D CNN encoder, TCN with dilated convolutions, and quantum reservoir.*
+*Figure 3: Q-TCRNet architecture showing 3D CNN encoder, TCN with dilated convolutions, and quantum reservoir.*
+
+![Data Flow Diagram](paper_figures/data_flow_diagram.png)
+*Figure 4: Complete data flow with tensor dimensions at each stage.*
 
 ---
 
@@ -139,7 +145,7 @@ Output measurement vector:
 $$\mathbf{m} = [m_1, m_2, \ldots, m_{N_q}]^T \in [-1, 1]^{N_q}$$
 
 ![Quantum Circuit](paper_figures/quantum_circuit_comparison.png)
-*Figure 3: Quantum temporal reservoir circuit with RY/RZ rotations and ring entanglement topology.*
+*Figure 5: Quantum temporal reservoir circuit with RY/RZ rotations and ring entanglement topology.*
 
 ---
 
@@ -316,7 +322,10 @@ This motivates using small quantum circuits: a 4-qubit circuit ($2^4 = 16$ dimen
 **Key Finding**: Quantum layer contributes **+4.9%** to waveform accuracy. TCN backbone provides **+11.5%** improvement.
 
 ![Frequency Spectrum Analysis](enhanced_analysis/comprehensive_300mV.png)
-*Figure 4: Comprehensive waveform analysis showing spatiotemporal helix patterns, frequency spectra, and event rates for each waveform type.*
+*Figure 6: Comprehensive waveform analysis showing spatiotemporal helix patterns, frequency spectra, and event rates for each waveform type.*
+
+![Statistical Features](enhanced_analysis/statistical_features_300mV.png)
+*Figure 7: Statistical features extracted from each waveform class showing discriminative characteristics.*
 
 ---
 
