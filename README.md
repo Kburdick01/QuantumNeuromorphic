@@ -110,31 +110,23 @@ Channel progression: $32 \rightarrow 64 \rightarrow 128 \rightarrow 128$
 
 ### Feature Projection
 
-Compress spatial-temporal features and project to quantum parameter space:
+Compress spatial-temporal features to quantum parameter space:
 
-$$h_{\text{global}} = \text{AdaptiveAvgPool}(h) \in \mathbb{R}^{128}$$
+1. Global pooling: $h \rightarrow \mathbb{R}^{128}$
+2. Linear compression: $128 \rightarrow 64 \rightarrow N_q$
+3. Tanh activation scaled by $\pi$: output $\in [-\pi, \pi]^{N_q}$
 
-$$\theta = \pi \cdot \tanh(W_{\text{proj}} h_{\text{global}} + b) \in [-\pi, \pi]^{N_q}$$
-
-### Quantum Circuit Evolution
+### Quantum Circuit Structure
 
 Initialize in ground state: $|\psi_0\rangle = |0\rangle^{\otimes N_q}$
 
-Apply unitary evolution:
+For each layer $\ell = 1, \ldots, L$, apply in sequence:
 
-$$|\psi(\theta)\rangle = U_{\text{ent}}^{(L)} U_{\text{var}}^{(L)}(\phi^{(L)}) \cdots U_{\text{ent}}^{(1)} U_{\text{enc}}(\theta) |0\rangle^{\otimes N_q}$$
+1. **Data encoding** (with re-uploading): $R_y(\theta_j)$ on each qubit $j$
+2. **Variational rotations**: $R_y(\phi_j^{(\ell)}) R_z(\phi_j^{(\ell)})$ on each qubit $j$
+3. **Ring entanglement**: $\text{CNOT}(j, (j+1) \mod N_q)$ for each $j$
 
-#### Angle Embedding Layer
-
-$$U_{\text{enc}}(\theta) = \bigotimes_{j=1}^{N_q} R_y(\theta_j) = \bigotimes_{j=1}^{N_q} \exp\left(-i \frac{\theta_j}{2} \sigma_y\right)$$
-
-#### Variational Layer
-
-$$U_{\text{var}}^{(\ell)} = \prod_{j=1}^{N_q} R_y(\phi_j^{(\ell)}) R_z(\phi_j^{(\ell)})$$
-
-#### Entanglement Layer (Ring Topology)
-
-$$U_{\text{ent}} = \prod_{j=1}^{N_q} \text{CNOT}(j, (j+1) \mod N_q)$$
+Where $R_y(\theta) = \exp(-i\theta\sigma_y/2)$ and $R_z(\theta) = \exp(-i\theta\sigma_z/2)$.
 
 ### Measurement and Observables
 
@@ -160,12 +152,6 @@ The quantum circuit computes a kernel in $2^{N_q}$-dimensional Hilbert space:
 $$K_Q(h, h') = |\langle\psi(\theta)|\psi(\theta')\rangle|^2$$
 
 where $\theta = f(h)$ and $\theta' = f(h')$.
-
-### Expressivity Bound
-
-By the universal approximation theorem for quantum circuits, a parameterized circuit with $L$ layers can approximate any function $f: \mathbb{R}^n \rightarrow \mathbb{R}^m$ with error $\|f - f_Q\| < \epsilon$ for sufficiently large $L$ and $N_q$.
-
-Parameters scale as $P = O(N_q \cdot L)$ compared to $O(d^2)$ for classical neural networks.
 
 ---
 
@@ -267,23 +253,15 @@ $$\frac{\partial \mathcal{L}}{\partial h_0} \propto I + \frac{\partial}{\partial
 - $N_q = 10 \Rightarrow 2^{10} = 1{,}024$ dimensions
 - $N_q = 20 \Rightarrow 2^{20} \approx 10^6$ dimensions
 
-### Cover's Theorem
+### Cover's Theorem [7]
 
-Probability of linear separability in $d$ dimensions:
+The number of linearly separable dichotomies of $n$ points in $d$-dimensional space is:
 
-$$P(d, n) = \frac{1}{2^n} \sum_{k=0}^{d-1} \binom{n-1}{k}$$
+$$C(n, d) = 2 \sum_{k=0}^{d-1} \binom{n-1}{k}$$
 
-For $n=1000$ samples:
-- $d=1000$ (classical): $P \approx 0.5$
-- $d=2^{10}$ (quantum): $P \approx 1.0$
+Probability of linear separability: $P = C(n,d) / 2^n$
 
-### Temporal Derivative Encoding
-
-The helix curvature $\kappa$ encodes waveform information:
-
-$$\kappa(t) = \frac{\|\mathbf{r}'(t) \times \mathbf{r}''(t)\|}{\|\mathbf{r}'(t)\|^3}$$
-
-For Sine vs. Triangle: $\kappa_{\text{sine}}(t) \propto \omega^2 A$ vs. $\kappa_{\text{triangle}}(t) = 0$
+Higher-dimensional spaces (like quantum Hilbert space) are more likely to be linearly separable.
 
 ---
 
@@ -296,16 +274,6 @@ Von Neumann entropy of the reduced density matrix:
 $$S(\rho_A) = -\text{Tr}(\rho_A \log_2 \rho_A)$$
 
 where $\rho_A = \text{Tr}_B(|\psi\rangle\langle\psi|)$ traces out subsystem $B$.
-
-For $N_q=4$ qubits with ring entanglement: $S_{\text{avg}} \approx 1.87$ bits
-
-### Quantum Fisher Information
-
-Quantifies parameter sensitivity:
-
-$$F_Q[\rho(\theta)] = 4 \sum_i \frac{(\partial_\theta p_i)^2}{p_i}$$
-
-where $p_i = \langle i|\rho|i\rangle$ are eigenvalues.
 
 ### Classical Simulation Cost
 
