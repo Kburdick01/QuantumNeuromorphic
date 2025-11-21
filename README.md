@@ -49,11 +49,16 @@ $$V \in \mathbb{R}^{C \times T \times H \times W}$$
 
 where $C=2$ (polarities), $T$ (temporal bins), $H \times W$ (spatial pooling).
 
-### Trilinear Interpolation Kernel
+### Event Binning
 
-Given event stream $\mathcal{E} = \{e_k\}_{k=1}^N$:
+Given event stream $\mathcal{E} = \{e_k\}_{k=1}^N$, we accumulate events into discrete voxel bins:
 
-$$V(c,t,y,x) = \sum_{k} \mathbb{I}(p_k=c) \cdot K_t(t,t_k) \cdot K_x(x,x_k) \cdot K_y(y,y_k)$$
+$$V(c,t,y,x) = \sum_{k} \mathbb{I}(p_k=c) \cdot \mathbb{I}(t_k \in \text{bin}_t) \cdot \mathbb{I}(x_k \in \text{bin}_x) \cdot \mathbb{I}(y_k \in \text{bin}_y)$$
+
+Events are counted in spatial patches (8×8 pixels → 16×16 grid) and temporal bins (128 bins per window).
+
+![Voxel Grid Visualization](paper_figures/voxel_grid_visualization.png)
+*Figure 1: DVS voxel grid representation showing temporal evolution, spatial distribution, and polarity channels.*
 
 ### Normalization Pipeline
 
@@ -88,6 +93,9 @@ $$R = 1 + 2(1 + 2 + 4 + 8) = 31 \text{ timesteps}$$
 $$h_\ell = h_{\ell-1} + \text{Dropout}\left(\text{ReLU}\left(\text{BN}\left(W_\ell *_{d_\ell} h_{\ell-1}\right)\right)\right)$$
 
 Channel progression: $32 \rightarrow 64 \rightarrow 128 \rightarrow 128$
+
+![Architecture Comparison](paper_figures/architecture_comparison.png)
+*Figure 2: Q-TCRNet architecture showing 3D CNN encoder, TCN with dilated convolutions, and quantum reservoir.*
 
 ---
 
@@ -130,6 +138,9 @@ $$m_j = \langle\psi(\theta)| \sigma_z^{(j)} |\psi(\theta)\rangle = \text{Tr}(\rh
 Output measurement vector:
 
 $$\mathbf{m} = [m_1, m_2, \ldots, m_{N_q}]^T \in [-1, 1]^{N_q}$$
+
+![Quantum Circuit](paper_figures/quantum_circuit_comparison.png)
+*Figure 3: Quantum temporal reservoir circuit with RY/RZ rotations and ring entanglement topology.*
 
 ---
 
@@ -328,6 +339,9 @@ This motivates multi-reservoir design: six 6-qubit circuits are more efficient t
 
 **Key Finding**: Quantum layer contributes **+4.9%** to waveform accuracy. TCN backbone provides **+11.5%** improvement.
 
+![Frequency Spectrum Analysis](enhanced_analysis/comprehensive_300mV.png)
+*Figure 4: Comprehensive waveform analysis showing spatiotemporal helix patterns, frequency spectra, and event rates for each waveform type.*
+
 ---
 
 ## Installation
@@ -425,12 +439,21 @@ tensorboard --logdir runs/
 
 ## References
 
-1. Perez-Salinas, A., et al. (2020). Data re-uploading for a universal quantum classifier. *Quantum*, 4, 226.
-2. Schuld, M., & Killoran, N. (2019). Quantum machine learning in feature Hilbert spaces. *PRL*, 122(4).
-3. Havlicek, V., et al. (2019). Supervised learning with quantum-enhanced feature spaces. *Nature*, 567.
-4. Bai, S., et al. (2018). An empirical evaluation of generic convolutional and recurrent networks. *arXiv:1803.01271*.
-5. Gallego, G., et al. (2020). Event-based vision: A survey. *IEEE TPAMI*, 44(1).
-6. McClean, J. R., et al. (2018). Barren plateaus in quantum neural network training. *Nature Comm.*, 9(1).
+1. Pérez-Salinas, A., Cervera-Lierta, A., Gil-Fuster, E., & Latorre, J. I. (2020). Data re-uploading for a universal quantum classifier. *Quantum*, 4, 226. [https://doi.org/10.22331/q-2020-02-06-226](https://doi.org/10.22331/q-2020-02-06-226)
+
+2. Schuld, M., & Killoran, N. (2019). Quantum machine learning in feature Hilbert spaces. *Physical Review Letters*, 122(4), 040504. [https://doi.org/10.1103/PhysRevLett.122.040504](https://doi.org/10.1103/PhysRevLett.122.040504)
+
+3. Havlíček, V., et al. (2019). Supervised learning with quantum-enhanced feature spaces. *Nature*, 567(7747), 209-212. [https://doi.org/10.1038/s41586-019-0980-2](https://doi.org/10.1038/s41586-019-0980-2)
+
+4. Bai, S., Kolter, J. Z., & Koltun, V. (2018). An empirical evaluation of generic convolutional and recurrent networks for sequence modeling. *arXiv:1803.01271*. [https://arxiv.org/abs/1803.01271](https://arxiv.org/abs/1803.01271)
+
+5. Gallego, G., et al. (2020). Event-based vision: A survey. *IEEE TPAMI*, 44(1), 154-180. [https://doi.org/10.1109/TPAMI.2020.3008413](https://doi.org/10.1109/TPAMI.2020.3008413)
+
+6. McClean, J. R., et al. (2018). Barren plateaus in quantum neural network training landscapes. *Nature Communications*, 9(1), 4812. [https://doi.org/10.1038/s41467-018-07090-4](https://doi.org/10.1038/s41467-018-07090-4)
+
+7. Cover, T. M. (1965). Geometrical and statistical properties of systems of linear inequalities with applications in pattern recognition. *IEEE Transactions on Electronic Computers*, (3), 326-334. [https://doi.org/10.1109/PGEC.1965.264137](https://doi.org/10.1109/PGEC.1965.264137)
+
+8. Biamonte, J., et al. (2017). Quantum machine learning. *Nature*, 549(7671), 195-202. [https://doi.org/10.1038/nature23474](https://doi.org/10.1038/nature23474)
 
 ---
 
