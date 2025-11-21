@@ -27,7 +27,7 @@ Neuromorphic vision sensors (DVS) offer microsecond temporal resolution, produci
 
 ### 1. DVS Event Model
 
-Each DVS pixel fires an event $e_k = (t_k, x_k, y_k, p_k)$ when the logarithmic change in light intensity $I$ exceeds threshold $\theta$:
+Each DVS pixel fires an event $e_k = (t_k, x_k, y_k, p_k)$ when the logarithmic change in light intensity $I$ exceeds threshold $\theta$ [5]:
 
 $$\Delta \log I(x,y) = \log I(x,y,t) - \log I(x,y,t-\Delta t) \geq \pm\theta$$
 
@@ -35,28 +35,14 @@ where $I$ is the pixel illuminance (light intensity). Positive changes trigger O
 
 ### 2. Experimental Setup: Optical Chopper
 
-A 10-blade optical chopper wheel modulates light intensity as blades pass through the DVS field of view. The chopper rotation speed is controlled by a waveform generator via TTL sync signal:
+A New Focus 3501 10-blade optical chopper wheel modulates light intensity as blades pass through the DVS field of view:
 
-- **Input**: Waveform generator outputs voltage signal (200-500mV)
-- **Modulation**: Voltage level controls instantaneous rotation speed $\omega(t)$
-- **Output**: DVS captures blade edges as ON/OFF event streams
+- **Hardware**: DVS128 camera (128×128, 1μs resolution), Agilent 33120A waveform generator
+- **Control**: Waveform generator sync output → chopper sync input (TTL trigger on rising edge)
+- **Voltage levels**: 200mV, 300mV, 400mV, 500mV (controls rotation speed)
+- **Waveforms**: Sine, Square, Triangle, Burst
 
-### 3. Waveform Speed Modulation
-
-Different waveforms produce distinct speed profiles $\omega(t) = \omega_0 + \Delta\omega \cdot f(t)$:
-
-| Waveform | $f(t)$ | Speed Characteristic |
-|----------|--------|---------------------|
-| Sine | $\sin(\Omega t)$ | Smooth acceleration/deceleration |
-| Square | $\text{sgn}(\sin(\Omega t))$ | Abrupt speed transitions |
-| Triangle | $\text{tri}(\Omega t)$ | Linear speed ramps |
-| Burst | Pulsed | Intermittent motion |
-
-The angular acceleration $\dot{\omega}(t)$ distinguishes waveforms:
-
-$$\dot{\omega}_{\text{sine}}(t) = \Delta\omega \cdot \Omega \cos(\Omega t) \quad \text{vs.} \quad \dot{\omega}_{\text{triangle}}(t) = \pm \frac{4\Delta\omega \cdot \Omega}{\pi} \text{ (constant)}$$
-
-This creates characteristic spatiotemporal patterns in the event stream that the TCN learns to distinguish.
+The different waveform shapes create distinct spatiotemporal event patterns that the network learns to classify.
 
 ---
 
@@ -183,22 +169,23 @@ Parameters scale as $P = O(N_q \cdot L)$ compared to $O(d^2)$ for classical neur
 
 ---
 
-## Multi-Reservoir Strategy
+## Quantum Feature Compression
 
-To avoid barren plateaus, we employ split-transform-merge:
+To keep quantum circuits tractable, we compress classical features before quantum processing:
 
-1. **Split**: Partition $h \in \mathbb{R}^{128}$ into $G=6$ groups
-2. **Transform**: Process each with independent quantum reservoir ($N_q=4\text{-}6$ qubits)
-3. **Merge**: Concatenate outputs: $m_{\text{total}} \in \mathbb{R}^{G \times N_q}$
+1. **Global pooling**: $h_{\text{global}} = \text{AdaptiveAvgPool3d}(h) \in \mathbb{R}^{128}$
+2. **Compression**: $\mathbb{R}^{128} \rightarrow \mathbb{R}^{64} \rightarrow \mathbb{R}^{N_q}$ via linear layers
+3. **Quantum circuit**: $N_q = 4$ qubits, $L = 3$ layers
+4. **Expansion**: $\mathbb{R}^{N_q} \rightarrow \mathbb{R}^{64}$ for classification
 
 ### Computational Complexity
 
 - **Classical**: $O(B \cdot L \cdot T \cdot C_{\text{in}} \cdot C_{\text{out}})$
-- **Quantum**: $O(B \cdot G \cdot 2^{N_q})$
+- **Quantum**: $O(B \cdot 2^{N_q})$
 
-For $B=24$, $G=6$, $N_q=6$:
+For $B=24$, $N_q=4$:
 
-$$O_{\text{quantum}} = 24 \cdot 6 \cdot 2^6 = 9{,}216 \text{ operations/batch}$$
+$$O_{\text{quantum}} = 24 \cdot 2^4 = 384 \text{ operations/batch}$$
 
 ---
 
@@ -326,7 +313,7 @@ where $p_i = \langle i|\rho|i\rangle$ are eigenvalues.
 - **Gate application**: $O(2^N)$ per gate
 - **Measurement**: $O(2^N)$ expectation value calculation
 
-This motivates multi-reservoir design: six 6-qubit circuits are more efficient than one 36-qubit circuit.
+This motivates using small quantum circuits: a 4-qubit circuit ($2^4 = 16$ dimensions) remains tractable for classical simulation while providing nonlinear feature transformation.
 
 ---
 
