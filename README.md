@@ -27,15 +27,36 @@ Neuromorphic vision sensors (DVS) offer microsecond temporal resolution, produci
 
 ### 1. DVS Event Model
 
-Each DVS pixel fires an event $e_k = (t_k, x_k, y_k, p_k)$ when the logarithmic intensity change exceeds threshold $\theta$:
+Each DVS pixel fires an event $e_k = (t_k, x_k, y_k, p_k)$ when the logarithmic change in light intensity $I$ exceeds threshold $\theta$:
 
 $$\Delta \log I(x,y) = \log I(x,y,t) - \log I(x,y,t-\Delta t) \geq \pm\theta$$
 
-### 2. Waveform Discrimination
+where $I$ is the pixel illuminance (light intensity). Positive changes trigger ON events ($p=1$), negative changes trigger OFF events ($p=0$).
 
-The distinguishing information resides in temporal derivatives. For periodic motion analysis:
+### 2. Experimental Setup: Optical Chopper
 
-$$\frac{\partial^2 x}{\partial t^2}\bigg|_{\text{sine}} = -\omega^2 A \sin(\omega t) \quad \text{vs.} \quad \frac{\partial^2 x}{\partial t^2}\bigg|_{\text{triangle}} = 0$$
+A 10-blade optical chopper wheel modulates light intensity as blades pass through the DVS field of view. The chopper rotation speed is controlled by a waveform generator via TTL sync signal:
+
+- **Input**: Waveform generator outputs voltage signal (200-500mV)
+- **Modulation**: Voltage level controls instantaneous rotation speed $\omega(t)$
+- **Output**: DVS captures blade edges as ON/OFF event streams
+
+### 3. Waveform Speed Modulation
+
+Different waveforms produce distinct speed profiles $\omega(t) = \omega_0 + \Delta\omega \cdot f(t)$:
+
+| Waveform | $f(t)$ | Speed Characteristic |
+|----------|--------|---------------------|
+| Sine | $\sin(\Omega t)$ | Smooth acceleration/deceleration |
+| Square | $\text{sgn}(\sin(\Omega t))$ | Abrupt speed transitions |
+| Triangle | $\text{tri}(\Omega t)$ | Linear speed ramps |
+| Burst | Pulsed | Intermittent motion |
+
+The angular acceleration $\dot{\omega}(t)$ distinguishes waveforms:
+
+$$\dot{\omega}_{\text{sine}}(t) = \Delta\omega \cdot \Omega \cos(\Omega t) \quad \text{vs.} \quad \dot{\omega}_{\text{triangle}}(t) = \pm \frac{4\Delta\omega \cdot \Omega}{\pi} \text{ (constant)}$$
+
+This creates characteristic spatiotemporal patterns in the event stream that the TCN learns to distinguish.
 
 ---
 
