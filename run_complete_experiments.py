@@ -30,11 +30,98 @@ from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
 import yaml
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+# Set plotting style
+plt.style.use('seaborn-v0_8-whitegrid')
+sns.set_palette("husl")
 
 # Global timing tracker
 TIMING_LOG = []
+
+
+def generate_plots(train_losses, val_losses, train_accs, val_accs,
+                   wave_cm, volt_cm, wave_classes, volt_classes, output_dir):
+    """Generate all plots for research paper."""
+    output_dir = Path(output_dir)
+
+    # 1. Loss curves
+    fig, ax = plt.subplots(figsize=(10, 6))
+    epochs = range(1, len(train_losses) + 1)
+    ax.plot(epochs, train_losses, 'b-', label='Train Loss', linewidth=2)
+    ax.plot(epochs, val_losses, 'r-', label='Validation Loss', linewidth=2)
+    ax.set_xlabel('Epoch', fontsize=12)
+    ax.set_ylabel('Loss', fontsize=12)
+    ax.set_title('Training and Validation Loss', fontsize=14)
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'loss_curves.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 2. Accuracy curves
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(epochs, [a*100 for a in train_accs], 'b-', label='Train Accuracy', linewidth=2)
+    ax.plot(epochs, [a*100 for a in val_accs], 'r-', label='Validation Accuracy', linewidth=2)
+    ax.set_xlabel('Epoch', fontsize=12)
+    ax.set_ylabel('Accuracy (%)', fontsize=12)
+    ax.set_title('Training and Validation Accuracy', fontsize=14)
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim([0, 105])
+    plt.tight_layout()
+    plt.savefig(output_dir / 'accuracy_curves.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 3. Waveform confusion matrix
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(wave_cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=wave_classes, yticklabels=wave_classes, ax=ax)
+    ax.set_xlabel('Predicted', fontsize=12)
+    ax.set_ylabel('True', fontsize=12)
+    ax.set_title('Waveform Classification Confusion Matrix', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'confusion_matrix_waveform.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 4. Voltage confusion matrix
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(volt_cm, annot=True, fmt='d', cmap='Greens',
+                xticklabels=volt_classes, yticklabels=volt_classes, ax=ax)
+    ax.set_xlabel('Predicted', fontsize=12)
+    ax.set_ylabel('True', fontsize=12)
+    ax.set_title('Voltage Classification Confusion Matrix', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'confusion_matrix_voltage.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 5. Combined loss and accuracy plot
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax1.plot(epochs, train_losses, 'b-', label='Train', linewidth=2)
+    ax1.plot(epochs, val_losses, 'r-', label='Val', linewidth=2)
+    ax1.set_xlabel('Epoch', fontsize=12)
+    ax1.set_ylabel('Loss', fontsize=12)
+    ax1.set_title('Loss Curves', fontsize=14)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(epochs, [a*100 for a in train_accs], 'b-', label='Train', linewidth=2)
+    ax2.plot(epochs, [a*100 for a in val_accs], 'r-', label='Val', linewidth=2)
+    ax2.set_xlabel('Epoch', fontsize=12)
+    ax2.set_ylabel('Accuracy (%)', fontsize=12)
+    ax2.set_title('Accuracy Curves', fontsize=14)
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    ax2.set_ylim([0, 105])
+
+    plt.tight_layout()
+    plt.savefig(output_dir / 'training_summary.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f"  Plots saved to {output_dir}")
 
 
 def log_time(task_name, duration):
@@ -158,12 +245,15 @@ def train_model_full(config, model_name="Q-TCRNet", num_epochs=200, output_dir=N
 
     # Training loop
     best_val_loss = float('inf')
+    best_val_acc = 0
     best_state = None
     train_losses = []
     val_losses = []
+    train_accs = []
+    val_accs = []
     epoch_times = []
 
-    print(f"\n[Training {model_name}] {num_epochs} epochs")
+    print(f"\n[Training {model_name}] {num_epochs} epochs", flush=True)
 
     for epoch in range(num_epochs):
         epoch_start = time.time()
@@ -171,6 +261,8 @@ def train_model_full(config, model_name="Q-TCRNet", num_epochs=200, output_dir=N
         # Training
         model.train()
         train_loss = 0
+        train_correct = 0
+        train_total = 0
         for voxels, labels in train_loader:
             voxels = voxels.to(device)
             wave_labels = labels['waveform'].to(device)
@@ -184,12 +276,21 @@ def train_model_full(config, model_name="Q-TCRNet", num_epochs=200, output_dir=N
             optimizer.step()
             train_loss += loss.item()
 
+            # Track accuracy
+            wave_pred = wave_logits.argmax(dim=1)
+            train_correct += (wave_pred == wave_labels).sum().item()
+            train_total += wave_labels.size(0)
+
         train_loss /= len(train_loader)
         train_losses.append(train_loss)
+        train_acc = train_correct / train_total
+        train_accs.append(train_acc)
 
         # Validation
         model.eval()
         val_loss = 0
+        val_correct = 0
+        val_total = 0
         with torch.no_grad():
             for voxels, labels in val_loader:
                 voxels = voxels.to(device)
@@ -200,8 +301,15 @@ def train_model_full(config, model_name="Q-TCRNet", num_epochs=200, output_dir=N
                 loss = criterion(wave_logits, wave_labels) + criterion(volt_logits, volt_labels)
                 val_loss += loss.item()
 
+                # Track accuracy
+                wave_pred = wave_logits.argmax(dim=1)
+                val_correct += (wave_pred == wave_labels).sum().item()
+                val_total += wave_labels.size(0)
+
         val_loss /= len(val_loader)
         val_losses.append(val_loss)
+        val_acc = val_correct / val_total
+        val_accs.append(val_acc)
         scheduler.step(val_loss)
 
         epoch_time = time.time() - epoch_start
@@ -209,11 +317,12 @@ def train_model_full(config, model_name="Q-TCRNet", num_epochs=200, output_dir=N
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_val_acc = val_acc
             best_state = copy.deepcopy(model.state_dict())
 
         if (epoch + 1) % 20 == 0:
             avg_time = np.mean(epoch_times[-20:])
-            print(f"  Epoch {epoch+1}/{num_epochs}: Train={train_loss:.4f}, Val={val_loss:.4f}, Time={avg_time:.2f}s")
+            print(f"  Epoch {epoch+1}/{num_epochs}: Loss={train_loss:.4f}/{val_loss:.4f}, Acc={train_acc*100:.1f}%/{val_acc*100:.1f}%, Time={avg_time:.2f}s", flush=True)
 
     # Load best model and evaluate
     model.load_state_dict(best_state)
@@ -234,38 +343,66 @@ def train_model_full(config, model_name="Q-TCRNet", num_epochs=200, output_dir=N
             all_volt_labels.append(labels['voltage'].numpy())
 
     wave_preds = np.concatenate(all_wave_preds)
-    wave_labels = np.concatenate(all_wave_labels)
+    wave_labels_arr = np.concatenate(all_wave_labels)
     volt_preds = np.concatenate(all_volt_preds)
-    volt_labels = np.concatenate(all_volt_labels)
+    volt_labels_arr = np.concatenate(all_volt_labels)
 
-    wave_acc = accuracy_score(wave_labels, wave_preds)
-    volt_acc = accuracy_score(volt_labels, volt_preds)
+    # Calculate metrics
+    wave_acc = accuracy_score(wave_labels_arr, wave_preds)
+    volt_acc = accuracy_score(volt_labels_arr, volt_preds)
+
+    # Precision, Recall, F1
+    wave_prec, wave_rec, wave_f1, _ = precision_recall_fscore_support(wave_labels_arr, wave_preds, average='weighted')
+    volt_prec, volt_rec, volt_f1, _ = precision_recall_fscore_support(volt_labels_arr, volt_preds, average='weighted')
+
+    # Confusion matrices
+    wave_cm = confusion_matrix(wave_labels_arr, wave_preds)
+    volt_cm = confusion_matrix(volt_labels_arr, volt_preds)
 
     avg_epoch_time = np.mean(epoch_times)
     total_training_time = time.time() - training_start
 
     # Check for overfitting
-    train_val_gap = train_losses[-1] - val_losses[-1]
-    overfit_indicator = "OVERFIT" if train_val_gap < -0.5 else "OK"
+    train_val_gap = train_accs[-1] - val_accs[-1]
+    overfit_indicator = "OVERFIT" if train_val_gap > 0.15 else "OK"
+
+    # Class names
+    wave_classes = ['burst', 'sine', 'square', 'triangle']
+    volt_classes = ['200mV', '300mV', '400mV', '500mV']
 
     results = {
         'wave_acc': wave_acc,
         'volt_acc': volt_acc,
+        'wave_precision': wave_prec,
+        'wave_recall': wave_rec,
+        'wave_f1': wave_f1,
+        'volt_precision': volt_prec,
+        'volt_recall': volt_rec,
+        'volt_f1': volt_f1,
         'best_val_loss': best_val_loss,
         'final_train_loss': train_losses[-1],
         'final_val_loss': val_losses[-1],
+        'final_train_acc': train_accs[-1],
+        'final_val_acc': val_accs[-1],
         'avg_epoch_time': avg_epoch_time,
         'total_training_time': total_training_time,
         'overfit_status': overfit_indicator,
         'model_state': best_state,
         'train_losses': train_losses,
-        'val_losses': val_losses
+        'val_losses': val_losses,
+        'train_accs': train_accs,
+        'val_accs': val_accs,
+        'wave_cm': wave_cm,
+        'volt_cm': volt_cm,
+        'wave_classes': wave_classes,
+        'volt_classes': volt_classes
     }
 
     log_time(f"Training {model_name}", total_training_time)
 
-    print(f"  Final: Wave={wave_acc*100:.1f}%, Volt={volt_acc*100:.1f}%, "
-          f"Train/Val Gap={train_val_gap:.3f} [{overfit_indicator}]")
+    print(f"  Final: Wave={wave_acc*100:.1f}% (P={wave_prec*100:.1f}%, R={wave_rec*100:.1f}%, F1={wave_f1*100:.1f}%)", flush=True)
+    print(f"         Volt={volt_acc*100:.1f}% (P={volt_prec*100:.1f}%, R={volt_rec*100:.1f}%, F1={volt_f1*100:.1f}%)", flush=True)
+    print(f"         Train/Val Acc Gap={train_val_gap*100:.1f}% [{overfit_indicator}]", flush=True)
 
     # Save to output directory
     if output_dir:
@@ -280,31 +417,55 @@ def train_model_full(config, model_name="Q-TCRNet", num_epochs=200, output_dir=N
             'volt_acc': volt_acc
         }, output_dir / 'model.pth')
 
-        # Save metrics
+        # Save comprehensive metrics
         metrics = {
             'model_name': model_name,
-            'wave_acc': float(wave_acc),
-            'volt_acc': float(volt_acc),
-            'best_val_loss': float(best_val_loss),
-            'final_train_loss': float(train_losses[-1]),
-            'final_val_loss': float(val_losses[-1]),
-            'avg_epoch_time': float(avg_epoch_time),
-            'total_training_time_sec': float(total_training_time),
-            'total_training_time_min': float(total_training_time / 60),
-            'num_epochs': num_epochs,
-            'overfit_status': overfit_indicator,
+            'waveform': {
+                'accuracy': float(wave_acc),
+                'precision': float(wave_prec),
+                'recall': float(wave_rec),
+                'f1_score': float(wave_f1)
+            },
+            'voltage': {
+                'accuracy': float(volt_acc),
+                'precision': float(volt_prec),
+                'recall': float(volt_rec),
+                'f1_score': float(volt_f1)
+            },
+            'training': {
+                'best_val_loss': float(best_val_loss),
+                'final_train_loss': float(train_losses[-1]),
+                'final_val_loss': float(val_losses[-1]),
+                'final_train_acc': float(train_accs[-1]),
+                'final_val_acc': float(val_accs[-1]),
+                'avg_epoch_time_sec': float(avg_epoch_time),
+                'total_training_time_sec': float(total_training_time),
+                'total_training_time_min': float(total_training_time / 60),
+                'num_epochs': num_epochs,
+                'overfit_status': overfit_indicator
+            },
             'timestamp': datetime.now().isoformat()
         }
         with open(output_dir / 'metrics.json', 'w') as f:
             json.dump(metrics, f, indent=2)
 
-        # Save loss curves
-        loss_df = pd.DataFrame({
+        # Save training curves data
+        curves_df = pd.DataFrame({
             'epoch': range(1, num_epochs + 1),
             'train_loss': train_losses,
-            'val_loss': val_losses
+            'val_loss': val_losses,
+            'train_acc': train_accs,
+            'val_acc': val_accs
         })
-        loss_df.to_csv(output_dir / 'loss_curves.csv', index=False)
+        curves_df.to_csv(output_dir / 'training_curves.csv', index=False)
+
+        # Save confusion matrices
+        np.save(output_dir / 'confusion_matrix_waveform.npy', wave_cm)
+        np.save(output_dir / 'confusion_matrix_voltage.npy', volt_cm)
+
+        # Generate all plots
+        generate_plots(train_losses, val_losses, train_accs, val_accs,
+                      wave_cm, volt_cm, wave_classes, volt_classes, output_dir)
 
     return results
 
