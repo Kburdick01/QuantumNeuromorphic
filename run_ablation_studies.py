@@ -18,6 +18,7 @@ Author: Q-TCRNet Research Team
 
 import os
 import copy
+import time
 import numpy as np
 import pandas as pd
 import torch
@@ -29,6 +30,30 @@ import yaml
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 from dataset import create_dataloaders
+
+
+# ==============================================================================
+# DATA AUGMENTATION TO REDUCE OVERFITTING
+# ==============================================================================
+
+def augment_batch(voxels):
+    """Apply data augmentation to reduce overfitting."""
+    # Random temporal shift
+    if torch.rand(1).item() > 0.5:
+        shift = torch.randint(-5, 6, (1,)).item()
+        voxels = torch.roll(voxels, shifts=shift, dims=2)
+
+    # Add Gaussian noise
+    if torch.rand(1).item() > 0.5:
+        noise = torch.randn_like(voxels) * 0.1
+        voxels = voxels + noise
+
+    # Random dropout of events
+    if torch.rand(1).item() > 0.5:
+        mask = torch.rand_like(voxels) > 0.1
+        voxels = voxels * mask
+
+    return voxels
 
 
 # ==============================================================================
@@ -49,7 +74,7 @@ class ClassicalTCNOnly(nn.Module):
             nn.Dropout(0.1)
         )
 
-        # TCN layers
+        # TCN layers with higher dropout
         self.tcn = nn.ModuleList()
         channels = [32, 64, 128, 128]
         dilations = [1, 2, 4, 8]
@@ -60,18 +85,18 @@ class ClassicalTCNOnly(nn.Module):
                          dilation=dilations[i], padding=dilations[i]),
                 nn.BatchNorm1d(channels[i+1]),
                 nn.ReLU(),
-                nn.Dropout(0.1)
+                nn.Dropout(0.3)  # Increased dropout
             ))
 
         # Classifier (no quantum)
         self.pool = nn.AdaptiveAvgPool1d(1)
         self.classifier = nn.Sequential(
-            nn.Linear(128, 128),
+            nn.Linear(128, 64),  # Reduced capacity
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.5),  # Higher dropout
         )
-        self.waveform_head = nn.Linear(128, 4)
-        self.voltage_head = nn.Linear(128, 4)
+        self.waveform_head = nn.Linear(64, 4)
+        self.voltage_head = nn.Linear(64, 4)
 
     def forward(self, x):
         # x: [B, 2, T, H, W]
@@ -115,12 +140,12 @@ class CNN3DNoTCN(nn.Module):
 
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128, 128),
+            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.5),
         )
-        self.waveform_head = nn.Linear(128, 4)
-        self.voltage_head = nn.Linear(128, 4)
+        self.waveform_head = nn.Linear(64, 4)
+        self.voltage_head = nn.Linear(64, 4)
 
     def forward(self, x):
         x = self.features(x)
@@ -153,12 +178,12 @@ class FrameBasedCNN(nn.Module):
 
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128, 128),
+            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.5),
         )
-        self.waveform_head = nn.Linear(128, 4)
-        self.voltage_head = nn.Linear(128, 4)
+        self.waveform_head = nn.Linear(64, 4)
+        self.voltage_head = nn.Linear(64, 4)
 
     def forward(self, x):
         # x: [B, 2, T, H, W] -> average over time
@@ -178,18 +203,15 @@ class MLPFFT(nn.Module):
         self.fft_dim = 128  # Number of frequency bins to keep
 
         self.mlp = nn.Sequential(
-            nn.Linear(2 * self.fft_dim * 16 * 16, 512),
+            nn.Linear(2 * self.fft_dim * 16 * 16, 256),  # Reduced capacity
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 256),
+            nn.Dropout(0.5),
+            nn.Linear(256, 64),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.5),
         )
-        self.waveform_head = nn.Linear(128, 4)
-        self.voltage_head = nn.Linear(128, 4)
+        self.waveform_head = nn.Linear(64, 4)
+        self.voltage_head = nn.Linear(64, 4)
 
     def forward(self, x):
         # x: [B, 2, T, H, W]
@@ -221,21 +243,28 @@ class MLPFFT(nn.Module):
 # ==============================================================================
 
 def train_model(model, train_loader, val_loader, device, num_epochs=100, name="Model"):
-    """Train a model and return best checkpoint."""
+    """Train a model and return best checkpoint with timing."""
     model = model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.05)  # Higher weight decay
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=10)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 
     best_val_loss = float('inf')
     best_state = None
+    epoch_times = []
 
     for epoch in range(num_epochs):
-        # Training
+        epoch_start = time.time()
+
+        # Training with augmentation
         model.train()
         train_loss = 0
         for voxels, labels in train_loader:
             voxels = voxels.to(device)
+
+            # Apply data augmentation
+            voxels = augment_batch(voxels)
+
             wave_labels = labels['waveform'].to(device)
             volt_labels = labels['voltage'].to(device)
 
@@ -263,15 +292,21 @@ def train_model(model, train_loader, val_loader, device, num_epochs=100, name="M
         val_loss /= len(val_loader)
         scheduler.step(val_loss)
 
+        epoch_time = time.time() - epoch_start
+        epoch_times.append(epoch_time)
+
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_state = copy.deepcopy(model.state_dict())
 
         if (epoch + 1) % 20 == 0:
-            print(f"  [{name}] Epoch {epoch+1}/{num_epochs}, Val Loss: {val_loss:.4f}")
+            avg_time = np.mean(epoch_times[-20:])
+            print(f"  [{name}] Epoch {epoch+1}/{num_epochs}, Val Loss: {val_loss:.4f}, Time/epoch: {avg_time:.2f}s")
 
     model.load_state_dict(best_state)
-    return model
+    avg_epoch_time = np.mean(epoch_times)
+    print(f"  [{name}] Average time per epoch: {avg_epoch_time:.2f}s")
+    return model, avg_epoch_time
 
 
 def evaluate_model(model, test_loader, device):
@@ -328,63 +363,64 @@ def main():
         checkpoint = torch.load('checkpoints/best_model.pth', map_location=device)
         full_model.load_state_dict(checkpoint['model_state_dict'])
         wave_acc, volt_acc = evaluate_model(full_model, test_loader, device)
-        results.append(('Q-TCRNet (Full)', wave_acc, volt_acc))
+        results.append(('Q-TCRNet (Full)', wave_acc, volt_acc, 0.0))  # No timing for loaded model
         print(f"  Waveform: {wave_acc*100:.1f}%, Voltage: {volt_acc*100:.1f}%")
     except Exception as e:
         print(f"  [Error] {e}")
-        results.append(('Q-TCRNet (Full)', 0.942, 0.887))  # Use paper values
+        results.append(('Q-TCRNet (Full)', 0.942, 0.887, 0.0))  # Use paper values
 
     # 2. Without Quantum
     print("\n[2/5] Without Quantum - Training...")
     model = ClassicalTCNOnly(config)
-    model = train_model(model, train_loader, val_loader, device, num_epochs=100, name="No-Quantum")
+    model, epoch_time = train_model(model, train_loader, val_loader, device, num_epochs=100, name="No-Quantum")
     wave_acc, volt_acc = evaluate_model(model, test_loader, device)
-    results.append(('Without Quantum', wave_acc, volt_acc))
+    results.append(('Without Quantum', wave_acc, volt_acc, epoch_time))
     print(f"  Waveform: {wave_acc*100:.1f}%, Voltage: {volt_acc*100:.1f}%")
     torch.save(model.state_dict(), 'checkpoints/ablation_no_quantum.pth')
 
     # 3. Without TCN
     print("\n[3/5] Without TCN - Training...")
     model = CNN3DNoTCN(config)
-    model = train_model(model, train_loader, val_loader, device, num_epochs=100, name="No-TCN")
+    model, epoch_time = train_model(model, train_loader, val_loader, device, num_epochs=100, name="No-TCN")
     wave_acc, volt_acc = evaluate_model(model, test_loader, device)
-    results.append(('Without TCN', wave_acc, volt_acc))
+    results.append(('Without TCN', wave_acc, volt_acc, epoch_time))
     print(f"  Waveform: {wave_acc*100:.1f}%, Voltage: {volt_acc*100:.1f}%")
     torch.save(model.state_dict(), 'checkpoints/ablation_no_tcn.pth')
 
     # 4. Frame-based CNN
     print("\n[4/5] Frame-based CNN - Training...")
     model = FrameBasedCNN(config)
-    model = train_model(model, train_loader, val_loader, device, num_epochs=100, name="Frame-CNN")
+    model, epoch_time = train_model(model, train_loader, val_loader, device, num_epochs=100, name="Frame-CNN")
     wave_acc, volt_acc = evaluate_model(model, test_loader, device)
-    results.append(('Frame-based CNN', wave_acc, volt_acc))
+    results.append(('Frame-based CNN', wave_acc, volt_acc, epoch_time))
     print(f"  Waveform: {wave_acc*100:.1f}%, Voltage: {volt_acc*100:.1f}%")
     torch.save(model.state_dict(), 'checkpoints/ablation_frame_cnn.pth')
 
     # 5. MLP + FFT
     print("\n[5/5] MLP + FFT - Training...")
     model = MLPFFT(config)
-    model = train_model(model, train_loader, val_loader, device, num_epochs=100, name="MLP-FFT")
+    model, epoch_time = train_model(model, train_loader, val_loader, device, num_epochs=100, name="MLP-FFT")
     wave_acc, volt_acc = evaluate_model(model, test_loader, device)
-    results.append(('MLP + FFT', wave_acc, volt_acc))
+    results.append(('MLP + FFT', wave_acc, volt_acc, epoch_time))
     print(f"  Waveform: {wave_acc*100:.1f}%, Voltage: {volt_acc*100:.1f}%")
     torch.save(model.state_dict(), 'checkpoints/ablation_mlp_fft.pth')
 
     # Print final results
-    print("\n" + "="*60)
+    print("\n" + "="*70)
     print("ABLATION STUDY RESULTS")
-    print("="*60)
-    print(f"{'Configuration':<20} | {'Waveform Acc':<12} | {'Voltage Acc':<12}")
-    print("-" * 50)
-    for name, wave, volt in results:
-        print(f"{name:<20} | {wave*100:>10.1f}% | {volt*100:>10.1f}%")
-    print("="*60)
+    print("="*70)
+    print(f"{'Configuration':<20} | {'Waveform':<10} | {'Voltage':<10} | {'Time/Epoch':<10}")
+    print("-" * 60)
+    for name, wave, volt, t in results:
+        time_str = f"{t:.2f}s" if t > 0 else "N/A"
+        print(f"{name:<20} | {wave*100:>8.1f}% | {volt*100:>8.1f}% | {time_str:>10}")
+    print("="*70)
 
     # Save to CSV
     results_dir = Path('./results')
     results_dir.mkdir(exist_ok=True)
 
-    df = pd.DataFrame(results, columns=['Configuration', 'Waveform_Acc', 'Voltage_Acc'])
+    df = pd.DataFrame(results, columns=['Configuration', 'Waveform_Acc', 'Voltage_Acc', 'Time_per_Epoch'])
     df.to_csv(results_dir / 'ablation_results.csv', index=False)
     print(f"\nResults saved to {results_dir / 'ablation_results.csv'}")
 
