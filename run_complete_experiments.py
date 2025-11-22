@@ -106,7 +106,7 @@ def reprocess_data(config, output_dir=None):
     from preprocess import DVSEventPreprocessor
 
     preprocessor = DVSEventPreprocessor(config)
-    preprocessor.process_all()
+    preprocessor.process_all_csvs()
 
     duration = time.time() - start_time
     log_time("Data Preprocessing", duration)
