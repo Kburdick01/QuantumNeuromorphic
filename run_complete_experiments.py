@@ -103,9 +103,9 @@ def reprocess_data(config, output_dir=None):
         shutil.rmtree(processed_dir)
 
     # Import and run preprocessor
-    from preprocess import DVSPreprocessor
+    from preprocess import DVSEventPreprocessor
 
-    preprocessor = DVSPreprocessor(config)
+    preprocessor = DVSEventPreprocessor(config)
     preprocessor.process_all()
 
     duration = time.time() - start_time
