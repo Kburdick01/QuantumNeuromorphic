@@ -135,8 +135,12 @@ class FrameBasedCNN(nn.Module):
     """Frame-based 2D CNN (no temporal)"""
     def __init__(self, config):
         super().__init__()
+        # Get temporal bins from config (2 polarities * T bins)
+        temporal_bins = config['data']['window']['temporal_bins']
+        in_channels = 2 * temporal_bins
+
         self.cnn2d = nn.Sequential(
-            nn.Conv2d(256, 64, kernel_size=3, padding=1),  # 128 bins * 2 pol
+            nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64), nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
@@ -162,8 +166,13 @@ class MLPFFT(nn.Module):
     """MLP + FFT baseline"""
     def __init__(self, config):
         super().__init__()
+        temporal_bins = config['data']['window']['temporal_bins']
+        # Input: 2 (spatial) + T (temporal) + T//2+1 (fft)
+        input_dim = 2 + temporal_bins + temporal_bins // 2 + 1
+        self.temporal_bins = temporal_bins
+
         self.mlp = nn.Sequential(
-            nn.Linear(512, 256),
+            nn.Linear(input_dim, 256),
             nn.ReLU(), nn.Dropout(0.3),
             nn.Linear(256, 128),
             nn.ReLU(), nn.Dropout(0.3),
@@ -178,9 +187,9 @@ class MLPFFT(nn.Module):
         temporal = x.mean(dim=(1,3,4))  # [B, T]
         # FFT features
         fft = torch.fft.rfft(temporal, dim=1)
-        fft_feat = torch.abs(fft)[:, :256]
+        fft_feat = torch.abs(fft)  # [B, T//2+1]
         # Combine
-        feat = torch.cat([spatial, temporal[:,:254], fft_feat], dim=1)
+        feat = torch.cat([spatial, temporal, fft_feat], dim=1)
         x = self.mlp(feat)
         return self.wave_head(x), self.volt_head(x)
 
