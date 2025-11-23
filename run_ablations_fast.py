@@ -135,10 +135,11 @@ class FrameBasedCNN(nn.Module):
     """Frame-based 2D CNN (no temporal)"""
     def __init__(self, config):
         super().__init__()
-        # Get temporal bins from config (2 polarities * T bins)
-        temporal_bins = config['data']['window']['temporal_bins']
-        in_channels = 2 * temporal_bins
+        self.cnn2d = None  # Built on first forward pass
+        self.wave_head = None
+        self.volt_head = None
 
+    def _build(self, in_channels):
         self.cnn2d = nn.Sequential(
             nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64), nn.ReLU(),
@@ -156,7 +157,13 @@ class FrameBasedCNN(nn.Module):
 
     def forward(self, x):
         b, c, t, h, w = x.shape
-        x = x.view(b, c*t, h, w)
+        in_channels = c * t
+        if self.cnn2d is None:
+            self._build(in_channels)
+            self.cnn2d = self.cnn2d.to(x.device)
+            self.wave_head = self.wave_head.to(x.device)
+            self.volt_head = self.volt_head.to(x.device)
+        x = x.view(b, in_channels, h, w)
         x = self.cnn2d(x)
         x = x.view(b, -1)
         return self.wave_head(x), self.volt_head(x)
@@ -166,19 +173,19 @@ class MLPFFT(nn.Module):
     """MLP + FFT baseline"""
     def __init__(self, config):
         super().__init__()
-        temporal_bins = config['data']['window']['temporal_bins']
-        # Input: 2 (spatial) + T (temporal) + T//2+1 (fft)
-        input_dim = 2 + temporal_bins + temporal_bins // 2 + 1
-        self.temporal_bins = temporal_bins
+        self.mlp = None
+        self.wave_head = None
+        self.volt_head = None
 
+    def _build(self, input_dim, device):
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, 256),
             nn.ReLU(), nn.Dropout(0.3),
             nn.Linear(256, 128),
             nn.ReLU(), nn.Dropout(0.3),
-        )
-        self.wave_head = nn.Linear(128, 4)
-        self.volt_head = nn.Linear(128, 4)
+        ).to(device)
+        self.wave_head = nn.Linear(128, 4).to(device)
+        self.volt_head = nn.Linear(128, 4).to(device)
 
     def forward(self, x):
         b = x.size(0)
@@ -190,6 +197,10 @@ class MLPFFT(nn.Module):
         fft_feat = torch.abs(fft)  # [B, T//2+1]
         # Combine
         feat = torch.cat([spatial, temporal, fft_feat], dim=1)
+
+        if self.mlp is None:
+            self._build(feat.shape[1], x.device)
+
         x = self.mlp(feat)
         return self.wave_head(x), self.volt_head(x)
 
