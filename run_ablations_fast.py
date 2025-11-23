@@ -218,6 +218,11 @@ def train_ablation(model, model_name, config, output_dir, num_epochs=50):
 
     train_loader, val_loader, test_loader = create_dataloaders(config)
 
+    # Do a dummy forward pass to build lazy models
+    with torch.no_grad():
+        sample_batch = next(iter(train_loader))[0].to(device)
+        model(sample_batch)
+
     # Stronger regularization for realistic results
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=0.02)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=5)
