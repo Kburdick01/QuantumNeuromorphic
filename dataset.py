@@ -345,7 +345,6 @@ def create_dataloaders(config: dict,
 
             def __getitem__(self, idx):
                 real_idx = self.subset.indices[idx]
-                voxel, labels = self.subset.dataset.manifest.iloc[real_idx], labels
 
                 # Load and augment
                 sample = self.subset.dataset.manifest.iloc[real_idx]
