@@ -1,7 +1,7 @@
 data:
-  csv_dir: /home/kyleb/Desktop/QuantumNetwork/data/raw_truncated
+  csv_dir: /home/kyleb/Desktop/QuantumNetwork/data/raw
   manifest_path: ./data/processed/manifest.csv
-  metadata_path: ~/Desktop/QuantumNetwork/data/raw_truncated/dataset_metadata.json
+  metadata_path: /home/kyleb/Desktop/QuantumNetwork/data/raw/dataset_metadata.json
   normalization:
     clip_value: 10.0
     log_eps: 1e-6
