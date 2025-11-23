@@ -150,7 +150,7 @@ class QMLP(nn.Module):
                        self.weights_rot_2, self.weights_crx_2)
             q_outputs.append(torch.stack(out))
 
-        q_out = torch.stack(q_outputs)  # [B, 16]
+        q_out = torch.stack(q_outputs).float()  # [B, 16], convert to float32
 
         # Classification
         out = self.fc(q_out)
