@@ -200,6 +200,8 @@ def reprocess_data(config, output_dir=None):
 
     # Save preprocessing info
     if output_dir:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
         info = {
             'duration_sec': duration,
             'processed_dir': str(processed_dir),
